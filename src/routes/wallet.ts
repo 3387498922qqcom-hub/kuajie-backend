@@ -1,0 +1,50 @@
+import { Router } from "express";
+import { PrismaClient } from "@prisma/client";
+import { auth, admin } from "../middlewares/auth";
+const prisma = new PrismaClient();
+const r = Router();
+r.get("/info", auth, async (req, res) => {
+  const u = (req as any).user;
+  const w = await prisma.wallet.findUnique({ where: { userId: u.userId }, include: { transactions: true } });
+  res.json({ success: true, data: w });
+});
+r.post("/withdraw", auth, async (req, res) => {
+  const u = (req as any).user;
+  const { amount } = req.body;
+  const w = await prisma.wallet.findUnique({ where: { userId: u.userId } });
+  if (!w) return res.status(404).json({ success: false });
+  if (Number(w.balance) < Number(amount)) return res.status(400).json({ success: false });
+  const nb = Number(w.balance) - Number(amount);
+  const nf = Number(w.frozen) + Number(amount);
+  await prisma.wallet.update({ where: { id: w.id }, data: { balance: nb, frozen: nf } });
+  await prisma.walletTransaction.create({ data: { walletId: w.id, type: "FREEZE", amount, status: "SUCCESS" } });
+  const rqd = await prisma.withdrawalRequest.create({ data: { userId: u.userId, amount } });
+  res.json({ success: true, data: rqd });
+});
+r.post("/admin/withdrawals/:id/approve", admin, async (req, res) => {
+  const id = req.params.id;
+  const adm = (req as any).user;
+  const wr = await prisma.withdrawalRequest.findUnique({ where: { id } });
+  if (!wr || wr.status !== "PENDING") return res.status(404).json({ success: false });
+  const w = await prisma.wallet.findUnique({ where: { userId: wr.userId } });
+  if (!w || Number(w.frozen) < Number(wr.amount)) return res.status(400).json({ success: false });
+  const nf = Number(w.frozen) - Number(wr.amount);
+  await prisma.wallet.update({ where: { id: w.id }, data: { frozen: nf } });
+  await prisma.walletTransaction.create({ data: { walletId: w.id, type: "WITHDRAW", amount: wr.amount, status: "SUCCESS" } });
+  await prisma.withdrawalRequest.update({ where: { id }, data: { status: "APPROVED", processedBy: adm.userId, processedAt: new Date() } });
+  res.json({ success: true });
+});
+r.post("/admin/withdrawals/:id/reject", admin, async (req, res) => {
+  const id = req.params.id;
+  const wr = await prisma.withdrawalRequest.findUnique({ where: { id } });
+  if (!wr || wr.status !== "PENDING") return res.status(404).json({ success: false });
+  const w = await prisma.wallet.findUnique({ where: { userId: wr.userId } });
+  if (!w) return res.status(404).json({ success: false });
+  const nb = Number(w.balance) + Number(wr.amount);
+  const nf = Number(w.frozen) - Number(wr.amount);
+  await prisma.wallet.update({ where: { id: w.id }, data: { balance: nb, frozen: nf } });
+  await prisma.walletTransaction.create({ data: { walletId: w.id, type: "UNFREEZE", amount: wr.amount, status: "SUCCESS" } });
+  await prisma.withdrawalRequest.update({ where: { id }, data: { status: "REJECTED", processedAt: new Date() } });
+  res.json({ success: true });
+});
+export default r;

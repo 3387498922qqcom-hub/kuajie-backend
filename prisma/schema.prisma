@@ -1,0 +1,165 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(cuid())
+  email             String?  @unique
+  phone             String?  @unique
+  passwordHash      String?
+  role              UserRole @default(USER)
+  inviterId         String? 
+  inviter           User?    @relation("UserInviter", fields: [inviterId], references: [id])
+  directInvitees    User[]   @relation("UserInviter")
+  vipTier           String? 
+  isAgentA          Boolean  @default(false)
+  wallet            Wallet?
+  membership        Membership?
+  cartItems         CartItem[]
+  orders            Order[]
+  withdrawals       WithdrawalRequest[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+model OTP {
+  id         String   @id @default(cuid())
+  target     String
+  type       OTPType
+  code       String
+  expiresAt  DateTime
+  attempts   Int      @default(0)
+  createdAt  DateTime @default(now())
+}
+
+enum OTPType {
+  PHONE
+  EMAIL
+}
+
+model Product {
+  id        String   @id @default(cuid())
+  sku       String   @unique
+  name      String
+  price     Decimal  @db.Decimal(18,2)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orderItems OrderItem[]
+  cartItems  CartItem[]
+}
+
+model CartItem {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int     @default(1)
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id])
+  status             OrderStatus @default(PENDING)
+  total              Decimal  @db.Decimal(18,2)
+  directReferrerId   String?
+  indirectReferrerId String?
+  directCommission   Decimal? @db.Decimal(18,2)
+  indirectCommission Decimal? @db.Decimal(18,2)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  items              OrderItem[]
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  SHIPPED
+  COMPLETED
+  CANCELED
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id])
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+  price     Decimal @db.Decimal(18,2)
+}
+
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  balance   Decimal  @db.Decimal(18,2) @default(0)
+  frozen    Decimal  @db.Decimal(18,2) @default(0)
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id        String   @id @default(cuid())
+  walletId  String
+  wallet    Wallet   @relation(fields: [walletId], references: [id])
+  type      WalletTxnType
+  amount    Decimal  @db.Decimal(18,2)
+  status    TxnStatus @default(SUCCESS)
+  orderId   String?
+  meta      Json?
+  createdAt DateTime @default(now())
+}
+
+enum WalletTxnType {
+  DEPOSIT
+  WITHDRAW
+  FREEZE
+  UNFREEZE
+  PAYMENT
+  REFUND
+  COMMISSION
+}
+
+enum TxnStatus {
+  SUCCESS
+  PENDING
+  FAILED
+}
+
+model WithdrawalRequest {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  amount      Decimal  @db.Decimal(18,2)
+  status      WithdrawStatus @default(PENDING)
+  processedBy String?
+  processedAt DateTime?
+  createdAt   DateTime @default(now())
+}
+
+enum WithdrawStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Membership {
+  id       String   @id @default(cuid())
+  userId   String   @unique
+  user     User     @relation(fields: [userId], references: [id])
+  tier     String
+  expiry   DateTime
+}
